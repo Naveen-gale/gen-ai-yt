@@ -1,0 +1,192 @@
+# 🚀 Deployment Guide — AI PPT Generator
+
+> Deploy your backend on **Render** and your frontend on **Vercel** with a free-tier friendly setup.
+
+---
+
+## 📁 Final Project Structure
+
+```
+promte_ai/
+├── .gitignore                  ← ignores venv, node_modules, etc.
+├── README.md
+├── adapter_config.json         ← LoRA adapter (committed to git)
+├── adapter_model.safetensors   ← LoRA weights (committed to git)
+├── tokenizer.json              ← tokenizer (committed to git)
+├── tokenizer_config.json
+├── chat_template.jinja
+│
+├── backend/
+│   ├── app.py                  ← production-ready Flask app
+│   ├── requirements.txt        ← includes gunicorn
+│   ├── Procfile                ← Render start command
+│   └── .env.example
+│
+└── frontend/
+    ├── vercel.json             ← SPA routing fix
+    ├── vite.config.js          ← production build config
+    ├── .env.example
+    └── src/
+        └── api/generateApi.js  ← reads VITE_API_URL env var
+```
+
+---
+
+## Step 1 — Push to GitHub
+
+Open a terminal in the `promte_ai` folder and run:
+
+```bash
+git init
+git add .
+git commit -m "feat: production-ready AI PPT Generator chatbot"
+git branch -M main
+git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPO_NAME.git
+git push -u origin main
+```
+
+> [!IMPORTANT]
+> The model files (`adapter_model.safetensors` ≈ 8.6 MB, `tokenizer.json` ≈ 11 MB) are under GitHub's 100 MB limit so they push normally. No Git LFS needed.
+
+---
+
+## Step 2 — Deploy Backend on Render
+
+### 2a. Create a Render account
+Go to [render.com](https://render.com) and sign up with GitHub.
+
+### 2b. Create a new Web Service
+
+1. Click **New → Web Service**
+2. Connect your GitHub repo
+3. Fill in the settings:
+
+| Setting | Value |
+|---|---|
+| **Name** | `ai-ppt-backend` |
+| **Root Directory** | `backend` |
+| **Runtime** | `Python 3` |
+| **Build Command** | `pip install -r requirements.txt` |
+| **Start Command** | `gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 600 app:app` |
+| **Plan** | **Standard ($7/mo)** ← free tier only has 512MB RAM, model needs ≥2GB |
+
+### 2c. Add Environment Variables on Render
+
+In the Render dashboard → **Environment** tab, add:
+
+| Key | Value |
+|---|---|
+| `CORS_ORIGINS` | `https://your-app.vercel.app` (add after Vercel deploy) |
+| `BASE_MODEL_ID` | `Qwen/Qwen2.5-0.5B-Instruct` |
+
+> [!NOTE]
+> `ADAPTER_DIR` does **not** need to be set — it auto-detects the repo root (`/opt/render/project/src`).
+> `PORT` is set automatically by Render.
+
+### 2d. Wait for the first deploy
+The first deploy will download the Qwen base model (~1GB). This can take **5–10 minutes**. Subsequent deploys are faster because Render caches the HuggingFace download.
+
+### 2e. Test the backend
+Once deployed, visit:
+```
+https://your-backend.onrender.com/health
+```
+You should see:
+```json
+{ "status": "running", "model": "loaded", "device": "cpu" }
+```
+
+---
+
+## Step 3 — Deploy Frontend on Vercel
+
+### 3a. Import project
+1. Go to [vercel.com](https://vercel.com) → **Add New → Project**
+2. Import your GitHub repo
+3. Set the following:
+
+| Setting | Value |
+|---|---|
+| **Root Directory** | `frontend` |
+| **Framework Preset** | `Vite` |
+| **Build Command** | `npm run build` |
+| **Output Directory** | `dist` |
+
+### 3b. Add Environment Variable
+
+In Vercel → **Settings → Environment Variables**, add:
+
+| Key | Value |
+|---|---|
+| `VITE_API_URL` | `https://your-backend.onrender.com` |
+
+> [!IMPORTANT]
+> Do **not** add a trailing slash to `VITE_API_URL`.
+
+### 3c. Deploy
+Click **Deploy**. Vercel builds in ~30 seconds and gives you a live URL like `https://ai-ppt-generator.vercel.app`.
+
+### 3d. Update CORS on Render
+Go back to Render → **Environment** → update `CORS_ORIGINS`:
+```
+https://ai-ppt-generator.vercel.app
+```
+Then click **Save** and wait for the service to restart.
+
+---
+
+## Step 4 — Verify End-to-End
+
+1. Open your Vercel URL
+2. Type a prompt, e.g. *"Create a 10-slide presentation about Machine Learning"*
+3. Wait ~3–5 minutes (CPU inference on Render Standard)
+4. Your generated PowerPoint prompt should appear ✅
+
+---
+
+## ⚙️ Local Development (No Changes Needed)
+
+```bash
+# Backend
+cd promte_ai/backend
+python -m venv venv
+venv\Scripts\activate        # Windows
+pip install -r requirements.txt
+python app.py
+
+# Frontend (separate terminal)
+cd promte_ai/frontend
+npm install
+npm run dev
+```
+Open `http://localhost:5173` — the Vite proxy automatically routes `/api` to `localhost:5000`.
+
+---
+
+## 💡 Cost & Performance Tips
+
+| Platform | Plan | RAM | Notes |
+|---|---|---|---|
+| Render | **Standard** | 2 GB | Minimum for Qwen-0.5B on CPU |
+| Render | Pro | 4 GB | Faster, handles concurrent requests better |
+| Vercel | Hobby (Free) | N/A | Fully free for the static frontend |
+
+> [!TIP]
+> To make generation faster in production, set `max_tokens` to `512` (half the current default). You can expose this as a slider in the frontend settings.
+
+> [!WARNING]
+> Render's free tier (512 MB RAM) will crash when loading the model. You **must** use the Standard plan or higher for the backend.
+
+---
+
+## 🔄 Updating the App
+
+After making code changes locally:
+
+```bash
+git add .
+git commit -m "fix: your message"
+git push
+```
+
+Both Render and Vercel automatically re-deploy on every push to `main`. 🎉
